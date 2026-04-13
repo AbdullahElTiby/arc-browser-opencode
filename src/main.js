@@ -1,9 +1,46 @@
-const { app, BrowserWindow, ipcMain, session, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, safeStorage } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const { spawn, exec } = require('child_process');
 const os = require('os');
 
 let mainWindow;
+let passwordFilePath;
+
+// Get password file path
+function getPasswordFilePath() {
+  const userDataPath = app.getPath('userData');
+  return path.join(userDataPath, 'password_hash.json');
+}
+
+// Hash password using SHA-256
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Check if password is set
+function isPasswordSet() {
+  passwordFilePath = getPasswordFilePath();
+  return fs.existsSync(passwordFilePath);
+}
+
+// Save password hash
+function savePasswordHash(hash) {
+  passwordFilePath = getPasswordFilePath();
+  fs.writeFileSync(passwordFilePath, JSON.stringify({ hash }), 'utf8');
+}
+
+// Verify password
+function verifyPassword(password) {
+  if (!isPasswordSet()) return false;
+  try {
+    const data = JSON.parse(fs.readFileSync(passwordFilePath, 'utf8'));
+    return hashPassword(password) === data.hash;
+  } catch (e) {
+    return false;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -34,6 +71,36 @@ ipcMain.on('window-maximize', () => {
   else mainWindow?.maximize();
 });
 ipcMain.on('window-close', () => mainWindow?.close());
+
+// ── Password management ───────────────────────────────────────────────────────
+ipcMain.handle('password-is-set', async () => {
+  return isPasswordSet();
+});
+
+ipcMain.handle('password-set', async (event, password) => {
+  if (!password || password.length < 1) {
+    return { success: false, error: 'Password cannot be empty' };
+  }
+  const hash = hashPassword(password);
+  savePasswordHash(hash);
+  return { success: true };
+});
+
+ipcMain.handle('password-verify', async (event, password) => {
+  const isValid = verifyPassword(password);
+  return { valid: isValid };
+});
+
+ipcMain.handle('password-remove', async () => {
+  try {
+    if (fs.existsSync(passwordFilePath)) {
+      fs.unlinkSync(passwordFilePath);
+    }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 
 // ── opencode detection ───────────────────────────────────────────────────────
 ipcMain.handle('opencode-check', async () => {

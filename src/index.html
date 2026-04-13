@@ -307,6 +307,50 @@ webview.active{display:flex}
   height:20px;background:var(--bg0);border-top:1px solid var(--border);
   display:flex;align-items:center;padding:0 12px;font-size:11px;color:var(--text3);flex-shrink:0;
 }
+
+/* Password modal */
+#password-modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;
+  display:none;align-items:center;justify-content:center;
+}
+#password-modal-overlay.active{display:flex}
+#password-modal{
+  background:var(--bg1);border:1px solid var(--border);border-radius:14px;
+  padding:28px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+#password-modal h2{font-size:18px;margin-bottom:8px;color:var(--text)}
+#password-modal p{font-size:13px;color:var(--text2);margin-bottom:18px}
+#password-input-wrap{
+  display:flex;align-items:center;gap:8px;background:var(--bg2);
+  border:1px solid var(--border2);border-radius:10px;padding:8px 12px;
+  margin-bottom:14px;transition:border-color .15s;
+}
+#password-input-wrap:focus-within{border-color:var(--accent)}
+#password-input{
+  flex:1;border:none;outline:none;background:transparent;color:var(--text);
+  font-size:14px;font-family:inherit;
+}
+#password-input::placeholder{color:var(--text3)}
+#password-toggle{
+  background:none;border:none;color:var(--text2);cursor:pointer;font-size:14px;
+  transition:color .15s;
+}
+#password-toggle:hover{color:var(--text)}
+#password-error{
+  font-size:12px;color:var(--red);margin-bottom:14px;display:none;
+}
+#password-actions{display:flex;gap:8px;justify-content:flex-end}
+.btn-primary{
+  padding:8px 16px;border-radius:8px;border:none;background:var(--accent);
+  color:#fff;font-size:13px;cursor:pointer;transition:background .15s;
+}
+.btn-primary:hover{background:#5a7de0}
+.btn-secondary{
+  padding:8px 16px;border-radius:8px;border:1px solid var(--border);
+  background:var(--bg2);color:var(--text2);font-size:13px;cursor:pointer;
+  transition:background .15s,color .15s;
+}
+.btn-secondary:hover{background:var(--bg3);color:var(--text)}
 </style>
 </head>
 <body>
@@ -405,6 +449,23 @@ webview.active{display:flex}
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Password Modal -->
+  <div id="password-modal-overlay">
+    <div id="password-modal">
+      <h2 id="password-title">Set Password</h2>
+      <p id="password-desc">Create a password to protect your browser.</p>
+      <div id="password-input-wrap">
+        <input type="password" id="password-input" placeholder="Enter password" autocomplete="off"/>
+        <button id="password-toggle" title="Show/Hide">👁️</button>
+      </div>
+      <div id="password-error">Invalid password. Please try again.</div>
+      <div id="password-actions">
+        <button class="btn-secondary" id="password-cancel">Cancel</button>
+        <button class="btn-primary" id="password-submit">Set Password</button>
+      </div>
     </div>
   </div>
 
@@ -757,6 +818,113 @@ document.getElementById('new-tab-btn').onclick = () => openTab('newtab');
 document.getElementById('btn-close').onclick = () => window.electronAPI.close();
 document.getElementById('btn-min').onclick   = () => window.electronAPI.minimize();
 document.getElementById('btn-max').onclick   = () => window.electronAPI.maximize();
+
+// ── Password Modal Logic ──────────────────────────────────────────────────────
+const passwordModalOverlay = document.getElementById('password-modal-overlay');
+const passwordInput = document.getElementById('password-input');
+const passwordToggle = document.getElementById('password-toggle');
+const passwordSubmit = document.getElementById('password-submit');
+const passwordCancel = document.getElementById('password-cancel');
+const passwordError = document.getElementById('password-error');
+const passwordTitle = document.getElementById('password-title');
+const passwordDesc = document.getElementById('password-desc');
+
+let isPasswordVisible = false;
+let authMode = 'set'; // 'set' or 'verify'
+
+async function checkPasswordStatus() {
+  const isSet = await window.electronAPI.passwordIsSet();
+  if (!isSet) {
+    showPasswordModal('set');
+  }
+}
+
+function showPasswordModal(mode) {
+  authMode = mode;
+  passwordInput.value = '';
+  passwordError.style.display = 'none';
+  passwordInput.type = 'password';
+  isPasswordVisible = false;
+  
+  if (mode === 'set') {
+    passwordTitle.textContent = 'Set Password';
+    passwordDesc.textContent = 'Create a password to protect your browser.';
+    passwordSubmit.textContent = 'Set Password';
+  } else {
+    passwordTitle.textContent = 'Enter Password';
+    passwordDesc.textContent = 'Please enter your password to continue.';
+    passwordSubmit.textContent = 'Unlock';
+  }
+  
+  passwordModalOverlay.classList.add('active');
+  passwordInput.focus();
+}
+
+function hidePasswordModal() {
+  passwordModalOverlay.classList.remove('active');
+}
+
+passwordToggle.addEventListener('click', () => {
+  isPasswordVisible = !isPasswordVisible;
+  passwordInput.type = isPasswordVisible ? 'text' : 'password';
+});
+
+passwordCancel.addEventListener('click', () => {
+  if (authMode === 'verify') {
+    // Can't cancel on verify, must enter password
+    passwordInput.focus();
+  } else {
+    hidePasswordModal();
+  }
+});
+
+passwordSubmit.addEventListener('click', handlePasswordSubmit);
+passwordInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') handlePasswordSubmit();
+});
+
+async function handlePasswordSubmit() {
+  const password = passwordInput.value;
+  if (!password) {
+    showError('Please enter a password');
+    return;
+  }
+  
+  if (authMode === 'set') {
+    const result = await window.electronAPI.passwordSet(password);
+    if (result.success) {
+      hidePasswordModal();
+      showStatus('Password set successfully');
+    } else {
+      showError(result.error || 'Failed to set password');
+    }
+  } else if (authMode === 'verify') {
+    const result = await window.electronAPI.passwordVerify(password);
+    if (result.valid) {
+      hidePasswordModal();
+      showStatus('Authenticated');
+    } else {
+      showError('Invalid password. Please try again.');
+      passwordInput.value = '';
+      passwordInput.focus();
+    }
+  }
+}
+
+function showError(msg) {
+  passwordError.textContent = msg;
+  passwordError.style.display = 'block';
+}
+
+function showStatus(msg) {
+  document.getElementById('statusbar').textContent = msg;
+  setTimeout(() => {
+    document.getElementById('statusbar').textContent = 'Ready';
+  }, 3000);
+}
+
+// Check password status on load
+checkPasswordStatus();
 
 document.addEventListener('keydown', e => {
   const m = e.ctrlKey || e.metaKey;
