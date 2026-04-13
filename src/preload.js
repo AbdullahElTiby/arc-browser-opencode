@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.send('window-maximize'),
   close:    () => ipcRenderer.send('window-close'),
 
+  // Password
+  passwordIsSet: () => ipcRenderer.invoke('password-is-set'),
+  passwordSet: (password) => ipcRenderer.invoke('password-set', password),
+  passwordVerify: (password) => ipcRenderer.invoke('password-verify', password),
+  passwordRemove: () => ipcRenderer.invoke('password-remove'),
+
   // opencode
   opencodeCheck: () => ipcRenderer.invoke('opencode-check'),
   opencodeStream: (payload) => ipcRenderer.send('opencode-stream', payload),
